@@ -42,7 +42,7 @@ Starting from an unauthenticated foothold on a `/23` internal segment, **LLMNR p
 | **Lateral Movement** | Pass-the-hash / pass-the-password,Evil-WinRM remote access, pivoting through a SOCKS proxy (proxychains) |
 | **Privilege Escalation** | MSSQL `xp_cmdshell` abuse, `SeImpersonatePrivilege` abuse (Meterpreter `getsystem`, PrintSpoofer) |
 | **AD Exploitation** | BloodHound attack-path analysis, ACL abuse (`GenericAll` → password reset / group membership), Domain Admin escalation |
-| **Credential Dumping** | SAM/LSA secrets dumping (`secretsdump.py`), registry hive extraction, `krbtgt` hash extraction (Golden Ticket pre-req) |
+| **Credential Dumping** | SAM/LSA secrets dumping (`secretsdump.py`), `krbtgt` hash extraction (Golden Ticket pre-req) |
 | **Reporting** | Structured methodology documentation, evidence collection, findings-based write-up |
 
 ## 🛠️ Tools Used
