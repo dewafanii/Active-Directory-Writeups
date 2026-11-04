@@ -92,6 +92,11 @@ responder -I <interface>
 hashcat -m 5600 poison.txt /usr/share/wordlists/rockyou.txt
 ```
 
+<p align="center">
+  <img src="screenshots/13-llmnr-ntlmv2-hash.png" width="650"><br>
+  <em>Responder capturing a poisoned NTLMv2-SSP hash for user <code>AB920</code> (hash value redacted)</em>
+</p>
+
 The captured NTLMv2-SSP hash was cracked offline with Hashcat against `rockyou.txt`, yielding a valid low-privilege domain credential.
 
 With this credential, authenticated SMB/WinRM access to `MS01` was obtained:
@@ -108,6 +113,11 @@ With this credential, authenticated SMB/WinRM access to `MS01` was obtained:
 Using the low-privilege account, all SMB shares across the three hosts were enumerated (`C$`, `ADMIN$`, `IPC$`, `NETLOGON`, `SYSVOL`, and a custom `Department Shares`).
 
 Deep enumeration of `Department Shares` → `IT\Private\Development\web.config` revealed a **hardcoded MSSQL service-account credential** left in a web application configuration file — a common real-world finding.
+
+<p align="center">
+  <img src="screenshots/14-webconfig-mssql-creds.png" width="700"><br>
+  <em><code>web.config</code> pulled from the <code>Department Shares</code> SMB share — plaintext MSSQL connection string with a <code>netdb</code> service-account credential (password redacted)</em>
+</p>
 
 A separate **password spray** against all valid AD users (harvested earlier via `crackmapexec --users`) using a seasonal password also succeeded for a second low-privilege account:
 
@@ -142,6 +152,16 @@ EXEC xp_cmdshell 'whoami /priv';
 1. **Meterpreter `getsystem`** — staged a `windows/x64/meterpreter/reverse_tcp` payload via `msfvenom`, delivered through `xp_cmdshell` + PowerShell download cradle, caught with `multi/handler`, then escalated with `getsystem` (Named Pipe Impersonation).
 2. **PrintSpoofer** — delivered `PrintSpoofer64.exe` and used it directly to reset the local `Administrator` password via `SeImpersonatePrivilege` abuse.
 
+<p align="center">
+  <img src="screenshots/16-meterpreter-getsystem.png" width="550"><br>
+  <em>Method 1 — Meterpreter <code>getsystem</code> succeeding via technique 5 (Named Pipe Impersonation / PrintSpooler variant)</em>
+</p>
+
+<p align="center">
+  <img src="screenshots/17-printspoofer-adminreset.png" width="750"><br>
+  <em>Method 2 — <code>PrintSpoofer64.exe</code> delivered via <code>xp_cmdshell</code> and used to reset the local Administrator password (password redacted)</em>
+</p>
+
 Local administrative access on `SQL01` was then used to dump local secrets:
 
 ```bash
@@ -153,7 +173,17 @@ impacket-secretsdump administrator:'<redacted>'@172.16.7.60
   <em>Local SAM/LSA secrets extraction from SQL01 (hash values redacted)</em>
 </p>
 
-A high-privilege **domain** service account credential was recovered from the LSA secrets dump and used to gain administrative access on `MS01` as well (RDP + WinRM), confirming credential reuse across the environment.
+A high-privilege **domain** service account credential (`mssqlsvc`) was recovered from the LSA secrets dump and used to gain administrative access on `MS01` as well (RDP + WinRM), confirming credential reuse across the environment:
+
+```bash
+proxychains xfreerdp /v:172.16.7.50 /u:mssqlsvc /p:'<redacted>'
+evil-winrm -i 172.16.7.50 -u mssqlsvc -p '<redacted>'
+```
+
+<p align="center">
+  <img src="screenshots/18-ms01-admin-flag-mssqlsvc.png" width="500"><br>
+  <em>Administrative WinRM access on MS01 using the reused <code>mssqlsvc</code> domain credential (flag redacted)</em>
+</p>
 
 ---
 
@@ -185,7 +215,16 @@ Get-DomainObjectAcl -Identity "Domain Admins" -ResolveGUIDs |
   <em>Manual ACL confirmation via PowerView — <code>GenericAll</code> on Domain Admins</em>
 </p>
 
-The vulnerable account's password was obtained via a targeted brute-force against the known username.
+The vulnerable account's password was obtained via a targeted brute-force against the known username:
+
+```bash
+crackmapexec smb 172.16.7.3 -u CT059 -p /usr/share/wordlists/rockyou.txt
+```
+
+<p align="center">
+  <img src="screenshots/15-ct059-bruteforce-hit.png" width="650"><br>
+  <em>Targeted brute-force against <code>CT059</code> — the GenericAll-holding account — yielding a valid password (redacted)</em>
+</p>
 
 ---
 
@@ -322,4 +361,3 @@ This assessment was performed in a **closed, authorized HTB Academy training lab
 ## 👤 About
 
 Write-up prepared as part of a hands-on **Active Directory Penetration Testing skills assessment**, demonstrating a complete internal network compromise methodology from unauthenticated recon through full domain takeover — aligned with industry-standard internal pentest / CPTS-style methodology.
-
