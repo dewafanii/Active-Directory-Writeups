@@ -47,7 +47,7 @@ Starting from an unauthenticated foothold on a `/23` internal segment, **LLMNR p
 
 ## 🛠️ Tools Used
 
-`Nmap` · `fping` · `CrackMapExec` · `smbclient` · `rpcclient` · `ldapsearch` · `Responder` · `Hashcat` · `Evil-WinRM` · `xfreerdp` · `Impacket Suite` (`GetUserSPNs`, `GetNPUsers`, `psexec`, `wmiexec`, `mssqlclient`, `secretsdump`) · `Kerbrute` · `BloodHound` + `Neo4j` · `PowerView` · `Metasploit` (`msfvenom`, `multi/handler`) · `PrintSpoofer` · `proxychains`
+`Nmap` · `fping` · `CrackMapExec` · `smbclient` · `rpcclient` · `ldapsearch` · `Responder` · `Hashcat` · `Evil-WinRM` · `xfreerdp` · `Impacket Suite` (`psexec`, `wmiexec`, `mssqlclient`, `secretsdump`) · `Kerbrute` · `BloodHound` + `Neo4j` · `PowerView` · `Metasploit` (`msfvenom`, `multi/handler`) · `PrintSpoofer` · `proxychains`
 
 ---
 
