@@ -33,7 +33,7 @@ Starting from an unauthenticated foothold on a `/23` internal segment, **LLMNR p
 - Abuse a dangerous ACL (`GenericAll`) to escalate directly to Domain Admin
 - Compromise the Domain Controller and extract the `krbtgt` hash
 
-## 🧠 Skills Demonstrated
+## 🧠 Skills Learned
 
 | Category | Skills |
 |---|---|
@@ -47,7 +47,7 @@ Starting from an unauthenticated foothold on a `/23` internal segment, **LLMNR p
 
 ## 🛠️ Tools Used
 
-`Nmap` · `fping` · `CrackMapExec` · `smbclient` · `rpcclient` · `ldapsearch` · `Responder` · `Hashcat` · `Evil-WinRM` · `xfreerdp` · `Impacket Suite` (`mssqlclient`, `secretsdump`) · `Kerbrute` · `BloodHound` + `Neo4j` · `PowerView` · `Metasploit` (`msfvenom`, `multi/handler`) · `PrintSpoofer` · `proxychains`
+`Nmap` · `fping` · `CrackMapExec` · `smbclient` · `Responder` · `Hashcat` · `Evil-WinRM` · `xfreerdp` · `Impacket Suite` (`mssqlclient`, `secretsdump`) · `Kerbrute` · `BloodHound` + `Neo4j` · `PowerView` · `Metasploit` (`msfvenom`, `multi/handler`) · `PrintSpoofer` · `proxychains`
 
 ---
 
