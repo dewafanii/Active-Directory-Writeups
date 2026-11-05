@@ -412,6 +412,21 @@ Full Domain Compromise on DC01 + krbtgt Hash (DCSync)
 
 ---
 
+## 🔍 Root Cause Analysis
+
+This full domain compromise was not the result of a single critical vulnerability, but a **chain of smaller, individually common security hygiene gaps**, each of which independently enabled the next stage of the attack:
+
+- Legacy broadcast name-resolution protocols (LLMNR/NBT-NS) left enabled, exposing the network to credential capture with zero prior access
+- Weak/seasonal password policy with no effective lockout, making password spraying trivially effective
+- Plaintext credentials stored in an application config file accessible via SMB share
+- Over-privileged service accounts (`SeImpersonatePrivilege`, `xp_cmdshell` enabled) on a production SQL Server
+- Widespread credential reuse across member servers, multiplying the blast radius of any single compromised account
+- An unaudited, overly permissive ACL (`GenericAll`) on the `Domain Admins` group, providing a single-step path from a standard user to full domain control
+
+**Any one of these controls, enforced correctly, would have broken the attack chain at a different stage.** This is the core argument for defense-in-depth: no single fix would have prevented this compromise — only a combination of hardening measures across identity, configuration management, and privilege control would have.
+
+---
+
 ## 📚 Key Takeaways / Lessons for Defenders
 
 - **LLMNR/NBT-NS** should be disabled via GPO; it was the initial entry point for this entire chain.
