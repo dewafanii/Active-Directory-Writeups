@@ -33,21 +33,21 @@ Starting from an unauthenticated foothold on a `/23` internal segment, **LLMNR p
 - Abuse a dangerous ACL (`GenericAll`) to escalate directly to Domain Admin
 - Compromise the Domain Controller and extract the `krbtgt` hash
 
-## 🧠 Skills Learned
+## 🧠 Skills Demonstrated
 
 | Category | Skills |
 |---|---|
 | **Recon & Enumeration** | Nmap scanning, SMB/null session enumeration, AD user/group enumeration, password policy enumeration |
-| **Credential Attacks** | LLMNR/NBT-NS poisoning (Responder), NTLMv2 hash cracking (Hashcat), Password Spraying (Kerbrute) |
-| **Lateral Movement** | Pass-the-hash / pass-the-password,Evil-WinRM remote access, pivoting through a SOCKS proxy (proxychains) |
+| **Credential Attacks** | LLMNR/NBT-NS poisoning (Responder), NTLMv2 hash cracking (Hashcat), Password Spraying (Kerbrute), AS-REP Roasting & Kerberoasting (attempted) |
+| **Lateral Movement** | Pass-the-hash / pass-the-password, PsExec/WMIExec/Evil-WinRM remote access, pivoting through a SOCKS proxy (proxychains) |
 | **Privilege Escalation** | MSSQL `xp_cmdshell` abuse, `SeImpersonatePrivilege` abuse (Meterpreter `getsystem`, PrintSpoofer) |
 | **AD Exploitation** | BloodHound attack-path analysis, ACL abuse (`GenericAll` → password reset / group membership), Domain Admin escalation |
-| **Credential Dumping** | SAM/LSA secrets dumping (`secretsdump.py`), `krbtgt` hash extraction (Golden Ticket pre-req) |
+| **Credential Dumping** | SAM/LSA secrets dumping (`secretsdump.py`), registry hive extraction, `krbtgt` hash extraction (Golden Ticket pre-req) |
 | **Reporting** | Structured methodology documentation, evidence collection, findings-based write-up |
 
 ## 🛠️ Tools Used
 
-`Nmap` · `fping` · `CrackMapExec` · `smbclient` · `Responder` · `Hashcat` · `Evil-WinRM` · `xfreerdp` · `Impacket Suite` (`mssqlclient`, `secretsdump`) · `Kerbrute` · `BloodHound` + `Neo4j` · `PowerView` · `Metasploit` (`msfvenom`, `multi/handler`) · `PrintSpoofer` · `proxychains`
+`Nmap` · `fping` · `CrackMapExec` · `smbclient` · `rpcclient` · `ldapsearch` · `Responder` · `Hashcat` · `Evil-WinRM` · `xfreerdp` · `Impacket Suite` (`GetUserSPNs`, `GetNPUsers`, `psexec`, `wmiexec`, `mssqlclient`, `secretsdump`) · `Kerbrute` · `BloodHound` + `Neo4j` · `PowerView` · `Metasploit` (`msfvenom`, `multi/handler`) · `PrintSpoofer` · `proxychains`
 
 ---
 
@@ -126,7 +126,46 @@ With this credential, authenticated SMB/WinRM access to `MS01` was obtained:
 
 ---
 
-## 📁 Phase 3 — SMB Share Enumeration & Credential Harvesting
+## 🧾 Phase 3 — Domain Enumeration with Low-Privilege Credential
+
+With `AB920`'s credential in hand, deeper domain enumeration was run before moving laterally — user list, password policy, and both classic Kerberos abuse paths.
+
+**Domain user list + password policy:**
+```bash
+crackmapexec smb 172.16.7.3 -u AB920 -p <redacted> --users | grep -oP '[A-Z]+\\\K[^ ]+' > users.txt
+crackmapexec smb 172.16.7.3 -u AB920 -p <redacted> --pass-pol
+```
+
+<p align="center">
+  <img src="screenshots/19-passpol-enum.png" width="650"><br>
+  <em>Domain password policy dump via <code>crackmapexec --pass-pol</code> — no lockout threshold, 1-char minimum length (credential redacted)</em>
+</p>
+
+**Kerberoasting** — checked for SPN-registered (Kerberoastable) accounts:
+```bash
+impacket-GetUserSPNs -dc-ip 172.16.7.3 INLANEFREIGHT.LOCAL/AB920
+```
+
+<p align="center">
+  <img src="screenshots/20-kerberoasting-noresults.png" width="600"><br>
+  <em>Kerberoasting attempt — no SPN-registered accounts found</em>
+</p>
+
+**AS-REP Roasting** — checked all harvested users for disabled Kerberos pre-authentication:
+```bash
+impacket-GetNPUsers -dc-ip 172.16.7.3 INLANEFREIGHT.LOCAL/AB920 -no-pass -usersfile users.txt
+```
+
+<p align="center">
+  <img src="screenshots/21-asrep-roasting-noresults.png" width="650"><br>
+  <em>AS-REP Roasting attempt — no accounts had <code>UF_DONT_REQUIRE_PREAUTH</code> set</em>
+</p>
+
+**Impact:** Both classic Kerberos abuse paths were ruled out (negative result = still a finding — confirms SPN hygiene and Kerberos pre-auth are enforced domain-wide). Password policy weakness (1-char minimum, generous lockout) was noted for the defenders' report. Pivoted to SMB share enumeration next.
+
+---
+
+## 📁 Phase 4 — SMB Share Enumeration & Credential Harvesting
 
 Using the low-privilege account, all SMB shares across the three hosts were enumerated (`C$`, `ADMIN$`, `IPC$`, `NETLOGON`, `SYSVOL`, and a custom `Department Shares`).
 
@@ -153,7 +192,7 @@ kerbrute passwordspray -d inlanefreight.local --dc 172.16.7.3 users.txt <redacte
 
 ---
 
-## 💉 Phase 4 — MSSQL Exploitation & Privilege Escalation (SQL01)
+## 💉 Phase 5 — MSSQL Exploitation & Privilege Escalation (SQL01)
 
 The harvested MSSQL credential was used to authenticate directly to the database engine on `SQL01`:
 
@@ -210,7 +249,7 @@ evil-winrm -i 172.16.7.50 -u mssqlsvc -p '<redacted>'
 
 ---
 
-## 🩸 Phase 5 — Active Directory Attack Path Mapping (BloodHound)
+## 🩸 Phase 6 — Active Directory Attack Path Mapping (BloodHound)
 
 With a standard domain foothold established, **BloodHound** was deployed to map the AD attack surface and identify the shortest path to `Domain Admins`.
 
@@ -253,7 +292,7 @@ crackmapexec smb 172.16.7.3 -u CT059 -p /usr/share/wordlists/rockyou.txt
 
 ---
 
-## 🔑 Phase 6 — ACL Abuse → Domain Admin
+## 🔑 Phase 7 — ACL Abuse → Domain Admin
 
 Two abuse techniques were demonstrated to turn the `GenericAll` right into full Domain Admin control:
 
@@ -285,7 +324,7 @@ Get-DomainGroupMember -Identity "Domain Admins" | select MemberName, MemberSID
 
 ---
 
-## 👑 Phase 7 — Domain Controller Compromise
+## 👑 Phase 8 — Domain Controller Compromise
 
 With Domain Admin rights obtained, authenticated access to `DC01` was confirmed via both abuse paths, and the engagement's objective flag was retrieved:
 
@@ -328,6 +367,9 @@ LLMNR Poisoning → NTLMv2 Hash → Hashcat Crack
 Low-Priv Domain User (MS01 access via Evil-WinRM)
         │
         ▼
+Domain Enum (users / pass-pol / Kerberoasting / AS-REP Roasting) → both ruled out
+        │
+        ▼
 SMB Share Enum → Plaintext MSSQL Creds found in web.config
    +    Password Spraying → 2nd low-priv account
         │
@@ -362,9 +404,10 @@ Full Domain Compromise on DC01 + krbtgt Hash (DCSync)
 
 | Stage | Host | Flag (masked) |
 |---|---|---|
-| Initial Foothold | MS01 | `aud1t_gr0up_m********!` |
-| ACL Abuse | DC01 | `acLs_f0r_th3_w**!` |
-| Local Admin | SQL01 | `s3imp3rs0nate_c*******` |
+| Initial Foothold (AB920) | MS01 | `aud1t_gr0up_m********!` |
+| Local Admin (PrintSpoofer/getsystem) | SQL01 | `s3imp3rs0nate_c*******` |
+| Credential Reuse (mssqlsvc) | MS01 | `exc3ss1ve_adm**_r*****!` |
+| ACL Abuse → Domain Admin | DC01 | `acLs_f0r_th3_w**!` |
 
 *(Flags are partially masked intentionally — full values withheld as this write-up is published publicly.)*
 
