@@ -369,8 +369,8 @@ Low-Priv Domain User (MS01 access via Evil-WinRM)
 Domain Enum (users / pass-pol / Kerberoasting / AS-REP Roasting) → both ruled out
         │
         ▼
-SMB Share Enum → Plaintext MSSQL Creds found in web.config
-   +    Password Spraying → 2nd low-priv account
+Password Spraying → 2nd low-priv account
+   +    SMB Share Enum → Plaintext MSSQL Creds found in web.config
         │
         ▼
 MSSQL xp_cmdshell RCE on SQL01
