@@ -167,16 +167,7 @@ impacket-GetNPUsers -dc-ip 172.16.7.3 INLANEFREIGHT.LOCAL/AB920 -no-pass -usersf
 
 ## 📁 Phase 4 — SMB Share Enumeration & Credential Harvesting
 
-Using the low-privilege account, all SMB shares across the three hosts were enumerated (`C$`, `ADMIN$`, `IPC$`, `NETLOGON`, `SYSVOL`, and a custom `Department Shares`).
-
-Deep enumeration of `Department Shares` → `IT\Private\Development\web.config` revealed a **hardcoded MSSQL service-account credential** left in a web application configuration file — a common real-world finding.
-
-<p align="center">
-  <img src="screenshots/14-webconfig-mssql-creds.png" width="700"><br>
-  <em><code>web.config</code> pulled from the <code>Department Shares</code> SMB share — plaintext MSSQL connection string with a <code>netdb</code> service-account credential (password redacted)</em>
-</p>
-
-A separate **password spray** against all valid AD users (harvested earlier via `crackmapexec --users`) using a seasonal password also succeeded for a second low-privilege account:
+A **password spray** against all valid AD users (harvested earlier via `crackmapexec --users`) using a seasonal password succeeded for a second low-privilege account:
 
 ```bash
 kerbrute passwordspray -d inlanefreight.local --dc 172.16.7.3 users.txt <redacted-candidate-pw>
@@ -188,8 +179,16 @@ kerbrute passwordspray -d inlanefreight.local --dc 172.16.7.3 users.txt <redacte
   <em>Successful password spray against the domain (credentials redacted)</em>
 </p>
 
-**Impact:** A second compromised account (`BR086`) plus a reusable MSSQL service credential (`netdb`) — direct path into the SQL01 database engine.
+Using the newly compromised `BR086` account, all SMB shares across the three hosts were enumerated (`C$`, `ADMIN$`, `IPC$`, `NETLOGON`, `SYSVOL`, and a custom `Department Shares`).
 
+Deep enumeration of `Department Shares` → `IT\Private\Development\web.config` revealed a **hardcoded MSSQL service-account credential** left in a web application configuration file — a common real-world finding.
+
+<p align="center">
+  <img src="screenshots/14-webconfig-mssql-creds.png" width="700"><br>
+  <em><code>web.config</code> pulled from the <code>Department Shares</code> SMB share — plaintext MSSQL connection string with a <code>netdb</code> service-account credential (password redacted)</em>
+</p>
+
+**Impact:** A second compromised account (`BR086`) via password spray, used to access `Department Shares` and recover a reusable MSSQL service credential (`netdb`) — direct path into the SQL01 database engine.
 ---
 
 ## 💉 Phase 5 — MSSQL Exploitation & Privilege Escalation (SQL01)
